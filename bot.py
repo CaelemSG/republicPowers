@@ -43,10 +43,25 @@ async def on_ready():
 async def make_roles(interaction: discord.Interaction):
     guild = interaction.guild
     cool_reason = f'{interaction.user.display_name} asked for it'
+    await interaction.response.send_message(f'started...')
     if guild:
         for role in claimable_things: 
             await guild.create_role(name=role, reason=cool_reason)
-    await interaction.response.send_message(f'ok done')
+    await interaction.response.edit_message(f'ok done')
+
+@client.tree.command(
+    name = "deleteroles",
+    description="get rid of them all"
+)
+async def delete_roles(interaction: discord.Interaction):
+    guild = interaction.guild
+    cool_reason = f'{interaction.user.display_name} asked for it'
+    await interaction.response.send_message(f'started...')
+    if guild:
+        for role in guild.roles: 
+            if role.name in claimable_things:
+                role.delete(reason=cool_reason)
+    await interaction.response.edit_message(f'ok done')
 
 @client.tree.command(
     name="giveclaim",
@@ -58,15 +73,29 @@ async def give_claim(interaction: discord.Interaction, who: discord.Member, clai
         if role.name in claimable_things:
             await interaction.response.send_message(f'{who.display_name} already has claim {role.name}!')
             return
-    possibile_claims = list(filter(lambda claim : claim.startswith(claim_name),  claimable_things))
+    search = claim_name.lower()
+    possibile_claims = list(filter(lambda claim : claim.lower().startswith(search),  claimable_things))
     if len(possibile_claims) > 1:
         await interaction.response.send_message(f'fool! too many: {possibile_claims}')
         return
-    claim = interaction[0]
+    claim = possibile_claims[0]
     for role in interaction.guild.roles:
         if role.name == claim:
             await who.add_roles(role)
             await interaction.response.send_message(f'made {who.display_name} a {claim}')
             return
-        
+
+@client.tree.command(
+    name="removeclaim",
+    description="removes someones claim"
+)
+async def remove_claim(interaction: discord.Interaction, who: discord.Member):
+    # fail if person already has a claim
+    for role in who.roles:
+        if role.name in claimable_things:
+            await who.remove_roles(role)
+            await interaction.response.send_message(f'removed claim {role.name} from {who.display_name}.')
+            return
+    await interaction.response.send_message(f'{who.display_name} has no claim!')
+
 client.run(os.getenv('BOT_TOKEN'))
