@@ -1,6 +1,9 @@
+import properties
+import tables
 import os
 import csv
 import discord
+import asyncio
 from discord import app_commands
 
 # get first row of a csv
@@ -9,7 +12,15 @@ with open("roles.csv") as file:
     reader = csv.reader(file)
     claimable_things = set(map( lambda x : x[0], reader ))
 
-print(claimable_things)
+print(f'{len(claimable_things)} claims found')
+
+# give player_properties a mutex lock since multiple coroutines may mutate player_properties
+player_properties = properties.deserialize_properties()
+player_properties_lock = asyncio.locks.Lock()
+
+async def async_serialize_properties():
+    async with player_properties_lock:
+        properties.serialize_properties(player_properties)
 
 MY_GUILD = discord.Object(id=os.getenv('REPLICATE_GUILD'))
 
@@ -78,6 +89,9 @@ async def give_claim(interaction: discord.Interaction, who: discord.Member, clai
     if len(possibile_claims) > 1:
         await interaction.response.send_message(f'fool! too many: {possibile_claims}')
         return
+    if len(possibile_claims) == 0:
+        await interaction.response.send_message(f'could not find claim {claim_name}.')
+        return
     claim = possibile_claims[0]
     for role in interaction.guild.roles:
         if role.name == claim:
@@ -97,5 +111,57 @@ async def remove_claim(interaction: discord.Interaction, who: discord.Member):
             await interaction.response.send_message(f'removed claim {role.name} from {who.display_name}.')
             return
     await interaction.response.send_message(f'{who.display_name} has no claim!')
+
+@client.tree.command(
+    name="view-property",
+    description="looks at someone elses property"
+)
+async def view_others_properties(interaction: discord.Interaction, who: discord.Member):
+    # find claim
+    for role in who.roles:
+        if role.name in claimable_things:
+            async with player_properties_lock:
+                if role.name in player_properties:
+                    owned = player_properties[role.name]
+                    await interaction.response.send_message(f'```{tables.table_properties(owned)}```')
+                else:
+                    await interaction.response.send_message(f'{role.name} ({who}) has no properties.')
+            return
+    await interaction.response.send_message(f'{who.display_name} has no claim!')
+
+@client.tree.command(
+    name="give-property",
+    description="give someone a property"
+)
+async def give_property(interaction: discord.Interaction, 
+                        who: discord.Member, 
+                        property_name: str,
+                        property_type: str,
+                        product: str,
+                        size: int,
+                        location: str,
+                        value: float,
+                        income: float):
+    # find claim
+    for role in who.roles:
+        if role.name in claimable_things:
+            new = properties.PlayerProperty()
+            new.name = property_name
+            new.property_type = property_type
+            new.product = product
+            new.size = size
+            new.location = location
+            new.value = value
+            new.income = income
+            async with player_properties_lock:
+                if role.name in player_properties:
+                    player_properties[role.name].append(new)
+                else:
+                    player_properties[role.name] = [new]
+            await interaction.response.send_message(f'added {property_type} named {property_name} to {role.name} ({who})')
+            asyncio.create_task(async_serialize_properties())
+            return
+    await interaction.response.send_message(f'{who.display_name} has no claim!')
+
 
 client.run(os.getenv('BOT_TOKEN'))
